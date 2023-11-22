@@ -121,7 +121,14 @@ class CCEP:
             else:
                 test_model = self.pruning_func(test_model, deleted_stage_index, pop[i])
             fitness_i = self.fitness(test_model)
-            parent_fitness.append([i, fitness_i, pop[i], len(pop[i])])
+
+            x = []
+            for j in range(filter_num):
+                x.append(random.random()/2)
+            for j in range(len(pop[i])):
+                x[pop[i][j]] = 1 - x[pop[i][j]]
+            vel = np.zeros((int(filter_num)))
+            parent_fitness.append([i, fitness_i, pop[i], len(pop[i]), x, vel])
             logger.info([i, fitness_i, [_ for _ in range(filter_num) if _ not in pop[i]], len(pop[i])])
 
         parent_fitness.sort(key=lambda x: (x[1], -x[3]), reverse=True)
@@ -129,7 +136,7 @@ class CCEP:
         for i in range(self.evolution_epoch):
             child_fitness = []
             logger.info(f'Population at round {i}')
-            if self.args.use_crossover:
+            if self.args.use_crossover:    #
                 for j in range(0, self.pop_size):
                     if random.random() < self.args.crossover_rate:
                         rand1 = random.randint(0, self.pop_size - 1)
@@ -143,22 +150,15 @@ class CCEP:
                         child1, child2 = self.crossover(parent1, parent2, filter_num)
                         pop[rand1] = child1
                         pop[rand2] = child2
-            for j in range(self.pop_size):
-                parent = pop[random.randint(0,self.pop_size - 1)]
-                child_indiv = self.mutation(parent, filter_num)
-                test_model = copy.deepcopy(self.model)
-                if delete_conv_index != -1:
-                    test_model = self.pruning_func(test_model, deleted_stage_index, deleted_block_index,
-                                                   delete_conv_index, child_indiv)
-                elif deleted_block_index != -1:
-                    test_model = self.pruning_func(test_model, deleted_stage_index, deleted_block_index, child_indiv)
-                else:
-                    test_model = self.pruning_func(test_model, deleted_stage_index,child_indiv)
-                fitness_j = self.fitness(test_model)
-                child_fitness.append([j, fitness_j, child_indiv, len(child_indiv)])
+            # CCEP EA algorithm
+            # child_fitness = self.origin_ea_algo(pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index)
 
-                logger.info([j, fitness_j, [_ for _ in range(filter_num) if _ not in child_indiv], len(child_indiv)])
+            # LSTAP
+            child_fitness = self.ea_lstpa(parent_fitness, filter_num)
+
             logger.info('\n\n')
+
+            #environment slection
             temp_list = []
             for j in range(len(parent_fitness)):
                 temp_list.append(parent_fitness[j])
@@ -173,7 +173,7 @@ class CCEP:
                 logger.info([parent_fitness[j][0], parent_fitness[j][1], [_ for _ in range(filter_num) if _ not in parent_fitness[j][2]],len(parent_fitness[j][2]) ])
             logger.info(f'\n\n')
             best_ind = None
-            if self.args.keep==True:
+            if self.args.keep==True:    #
                 best_ind = parent_fitness[0]
             else:
                 if len(parent_fitness[0][2]) != filter_num:
@@ -184,6 +184,59 @@ class CCEP:
                 f'Best so far {best_ind[1]}, Initial fitness: {initial_fitness}, Filter now:{best_ind[3]}, Pruning ratio: {1 - best_ind[3] / filter_num}')
         logger.info(f'Pruned filters {[_ for _ in range(filter_num) if _ not in best_ind[2]]}')
         return best_ind[2]
+
+    def lstpa_cal_fitness(self, obj1, obj2):
+        N = len(obj1)
+        max_obj1 = max(obj1)
+        max_obj2 = max(obj2)
+        min_obj1 = min(obj1)
+        min_obj2 = min(obj2)
+
+        if max_obj1 != min_obj1:
+            obj1 = (obj1-np.ones(N)*min_obj1)/((max_obj1-min_obj1)*np.ones(N))
+            obj1 = obj1.tolist()
+        if max_obj2 != min_obj2:
+            obj2 = (obj2-np.ones(N)*min_obj2)/((max_obj2-min_obj2)*np.ones(N))
+            obj2 = obj2.tolist()
+        
+        Dis = [[1000 for i in range(N)] for j in range(N)]
+        for i in range(N):
+            SPopObj1 = [max(obj1[t], obj1[i]) for t in range(N)]
+            SPopObj2 = [max(obj2[t], obj2[i]) for t in range(N)]
+            for j in range(N):
+                if j == i:
+                    continue
+                Dis[i][j] = np.linalg.norm([obj1[i]-SPopObj1[j], obj2[i]-SPopObj2[j]], ord=2)
+        fitness = [min(Dis[i]) for i in range(len(Dis))]
+        return fitness
+        
+    def ea_lstpa(self, pop_all, filter_num):
+        result = []
+        obj1 = []
+        obj2 = []
+        for i in range(len(pop_all)):
+            obj1.append(-pop_all[i][1])
+            obj2.append(pop_all[i][3])
+        fitness = self.lstpa_cal_fitness(obj1, obj2)
+
+        return result
+
+    def origin_ea_algo(self, pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index):
+        child_fitness = []
+        for j in range(self.pop_size):
+            parent = pop[random.randint(0,self.pop_size - 1)]  # select pop
+            child_indiv = self.mutation(parent, filter_num)    # only mutation
+            test_model = copy.deepcopy(self.model)
+            if delete_conv_index != -1:#
+                test_model = self.pruning_func(test_model, deleted_stage_index, deleted_block_index,
+                                            delete_conv_index, child_indiv)
+            elif deleted_block_index != -1:#
+                test_model = self.pruning_func(test_model, deleted_stage_index, deleted_block_index, child_indiv)
+            else:
+                test_model = self.pruning_func(test_model, deleted_stage_index,child_indiv)
+            fitness_j = self.fitness(test_model)
+            child_fitness.append([j, fitness_j, child_indiv, len(child_indiv)])
+        return child_fitness
 
     def check_model_profile(self):
         logger = logging.getLogger()
