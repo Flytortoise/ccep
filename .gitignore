@@ -1,0 +1,5 @@
+data_cifar10/
+.vscode/
+save/
+log_ok/
+models/
