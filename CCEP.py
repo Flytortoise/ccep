@@ -194,7 +194,7 @@ class CCEP:
             Winner = Rank[int(N/2):]
 
             for i in range(len(Loser)):
-                if fitness(Loser[i]) > fitness(Winner[i]):
+                if fitness[Loser[i]] > fitness[Winner[i]]:
                     Loser[i], Winner[i] = Winner[i], Loser[i]
             
             FitnessDiff = abs(fitness(Loser) - fitness(Winner))
