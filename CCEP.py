@@ -193,11 +193,12 @@ class CCEP:
             Loser = Rank[:int(N/2)]
             Winner = Rank[int(N/2):]
 
+            FitnessDiff = []
             for i in range(len(Loser)):
                 if fitness[Loser[i]] > fitness[Winner[i]]:
                     Loser[i], Winner[i] = Winner[i], Loser[i]
+                FitnessDiff.append(abs(fitness[Loser[i]] - fitness[Winner[i]]))
             
-            FitnessDiff = abs(fitness(Loser) - fitness(Winner))
             Offspring = self.lstpa_operator(pop_all, Loser, Winner, FitnessDiff)
             V = 1       # TODO tmp
             pop_all = self.lstpa_evn_select(pop_all, Offspring, V, (index/self.evoluiton_epoch)**2)
