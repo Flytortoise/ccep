@@ -175,7 +175,6 @@ class CCEP:
         return pop_all
 
     def ea_lstpa(self, pop_all, filter_num, logger, initial_fitness):
-        result = []
         obj1 = []
         obj2 = []
         N = len(pop_all)
@@ -201,7 +200,7 @@ class CCEP:
             
             Offspring = self.lstpa_operator(pop_all, Loser, Winner, FitnessDiff)
             V = 1       # TODO tmp
-            pop_all = self.lstpa_env_select(pop_all, Offspring, V, (index/self.evoluiton_epoch)**2)
+            pop_all = self.lstpa_env_select(pop_all, Offspring, V, (index/self.evolution_epoch)**2)
 
             # select best
             pop_all.sort(key = lambda x:(x[1], -x[3]), reverse=True)
