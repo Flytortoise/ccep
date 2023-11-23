@@ -134,9 +134,10 @@ class CCEP:
         parent_fitness.sort(key=lambda x: (x[1], -x[3]), reverse=True)
 
         # CCEP EA algorithm
-        # best_ind = self.origin_ea_algo(pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index, logger, parent_fitness, initial_fitness)
+        best_ind = self.origin_ea_algo(pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index, logger, parent_fitness, initial_fitness)
+        
         # LSTAP
-        best_ind = self.ea_lstpa(parent_fitness, filter_num, logger, initial_fitness)
+        # best_ind = self.ea_lstpa(parent_fitness, filter_num, logger, initial_fitness)
 
         logger.info(f'Pruned filters {[_ for _ in range(filter_num) if _ not in best_ind[2]]}')
         return best_ind[2]
