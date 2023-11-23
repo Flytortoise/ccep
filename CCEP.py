@@ -133,55 +133,11 @@ class CCEP:
 
         parent_fitness.sort(key=lambda x: (x[1], -x[3]), reverse=True)
 
-        for i in range(self.evolution_epoch):
-            child_fitness = []
-            logger.info(f'Population at round {i}')
-            if self.args.use_crossover:    #
-                for j in range(0, self.pop_size):
-                    if random.random() < self.args.crossover_rate:
-                        rand1 = random.randint(0, self.pop_size - 1)
-                        rand2 = random.randint(0, self.pop_size - 1)
-                        while rand1 == rand2:
-                            rand2 = random.randint(0, self.pop_size - 1)
+        # CCEP EA algorithm
+        # best_ind = self.origin_ea_algo(pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index, logger, parent_fitness, initial_fitness)
+        # LSTAP
+        best_ind = self.ea_lstpa(parent_fitness, filter_num, logger, initial_fitness)
 
-                        parent1 = pop[rand1]
-                        parent2 = pop[rand2]
-
-                        child1, child2 = self.crossover(parent1, parent2, filter_num)
-                        pop[rand1] = child1
-                        pop[rand2] = child2
-            # CCEP EA algorithm
-            # child_fitness = self.origin_ea_algo(pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index)
-
-            # LSTAP
-            child_fitness = self.ea_lstpa(parent_fitness, filter_num)
-
-            logger.info('\n\n')
-
-            #environment slection
-            temp_list = []
-            for j in range(len(parent_fitness)):
-                temp_list.append(parent_fitness[j])
-            for j in range(len(child_fitness)):
-                temp_list.append(child_fitness[j])
-            temp_list.sort(key = lambda x:(x[1], -x[3]), reverse=True)
-            logger.info(f'Population at epoch {i}:')
-            for j in range(self.pop_size):
-                pop[j] = temp_list[j][2]
-                parent_fitness[j] = temp_list[j]
-
-                logger.info([parent_fitness[j][0], parent_fitness[j][1], [_ for _ in range(filter_num) if _ not in parent_fitness[j][2]],len(parent_fitness[j][2]) ])
-            logger.info(f'\n\n')
-            best_ind = None
-            if self.args.keep==True:    #
-                best_ind = parent_fitness[0]
-            else:
-                if len(parent_fitness[0][2]) != filter_num:
-                    best_ind = parent_fitness[0]
-                else:
-                    best_ind = parent_fitness[1]
-            logger.info(
-                f'Best so far {best_ind[1]}, Initial fitness: {initial_fitness}, Filter now:{best_ind[3]}, Pruning ratio: {1 - best_ind[3] / filter_num}')
         logger.info(f'Pruned filters {[_ for _ in range(filter_num) if _ not in best_ind[2]]}')
         return best_ind[2]
 
@@ -209,34 +165,112 @@ class CCEP:
                 Dis[i][j] = np.linalg.norm([obj1[i]-SPopObj1[j], obj2[i]-SPopObj2[j]], ord=2)
         fitness = [min(Dis[i]) for i in range(len(Dis))]
         return fitness
-        
-    def ea_lstpa(self, pop_all, filter_num):
+    
+    def lstpa_operator(self, pop_all, Loser, Winner, FitnessDiff):
+        print("running.....lstpa_operator")
+        return pop_all
+
+    def lstpa_env_select(self, pop_all, Offspring, V, meth):
+        print("running.....lstpa_env_select")
+        return pop_all
+
+    def ea_lstpa(self, pop_all, filter_num, logger, initial_fitness):
         result = []
         obj1 = []
         obj2 = []
-        for i in range(len(pop_all)):
-            obj1.append(-pop_all[i][1])
-            obj2.append(pop_all[i][3])
-        fitness = self.lstpa_cal_fitness(obj1, obj2)
+        N = len(pop_all)
+        if N % 2:
+            N = N - 1
 
-        return result
+        for index in range(self.evolution_epoch):
+            for i in range(N):
+                obj1.append(-pop_all[i][1])
+                obj2.append(pop_all[i][3])
 
-    def origin_ea_algo(self, pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index):
-        child_fitness = []
-        for j in range(self.pop_size):
-            parent = pop[random.randint(0,self.pop_size - 1)]  # select pop
-            child_indiv = self.mutation(parent, filter_num)    # only mutation
-            test_model = copy.deepcopy(self.model)
-            if delete_conv_index != -1:#
-                test_model = self.pruning_func(test_model, deleted_stage_index, deleted_block_index,
-                                            delete_conv_index, child_indiv)
-            elif deleted_block_index != -1:#
-                test_model = self.pruning_func(test_model, deleted_stage_index, deleted_block_index, child_indiv)
+            fitness = self.lstpa_cal_fitness(obj1, obj2)
+            Rank = [ i for i in range(N) ]
+            random.shuffle(Rank)
+            Loser = Rank[:int(N/2)]
+            Winner = Rank[int(N/2):]
+
+            for i in range(len(Loser)):
+                if fitness(Loser[i]) > fitness(Winner[i]):
+                    Loser[i], Winner[i] = Winner[i], Loser[i]
+            
+            FitnessDiff = abs(fitness(Loser) - fitness(Winner))
+            Offspring = self.lstpa_operator(pop_all, Loser, Winner, FitnessDiff)
+            V = 1       # TODO tmp
+            pop_all = self.lstpa_evn_select(pop_all, Offspring, V, (index/self.evoluiton_epoch)**2)
+
+            # select best
+            pop_all.sort(key = lambda x:(x[1], -x[3]), reverse=True)
+            best_ind = pop_all[0]
+            logger.info(
+                f'Best so far {best_ind[1]}, Initial fitness: {initial_fitness}, Filter now:{best_ind[3]}, Pruning ratio: {1 - best_ind[3] / filter_num}')
+        return best_ind
+
+    def origin_ea_algo(self, pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index, logger, parent_fitness, initial_fitness):
+        for i in range(self.evolution_epoch):
+            child_fitness = []
+            logger.info(f'Population at round {i}')
+            if self.args.use_crossover:    #
+                for j in range(0, self.pop_size):
+                    if random.random() < self.args.crossover_rate:
+                        rand1 = random.randint(0, self.pop_size - 1)
+                        rand2 = random.randint(0, self.pop_size - 1)
+                        while rand1 == rand2:
+                            rand2 = random.randint(0, self.pop_size - 1)
+
+                        parent1 = pop[rand1]
+                        parent2 = pop[rand2]
+
+                        child1, child2 = self.crossover(parent1, parent2, filter_num)
+                        pop[rand1] = child1
+                        pop[rand2] = child2
+            # CCEP EA algorithm
+            # child_fitness = self.origin_ea_algo(pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index)
+            child_fitness = []
+            for j in range(self.pop_size):
+                parent = pop[random.randint(0,self.pop_size - 1)]  # select pop
+                child_indiv = self.mutation(parent, filter_num)    # only mutation
+                test_model = copy.deepcopy(self.model)
+                if delete_conv_index != -1:#
+                    test_model = self.pruning_func(test_model, deleted_stage_index, deleted_block_index,
+                                                delete_conv_index, child_indiv)
+                elif deleted_block_index != -1:#
+                    test_model = self.pruning_func(test_model, deleted_stage_index, deleted_block_index, child_indiv)
+                else:
+                    test_model = self.pruning_func(test_model, deleted_stage_index,child_indiv)
+                fitness_j = self.fitness(test_model)
+                child_fitness.append([j, fitness_j, child_indiv, len(child_indiv)])
+
+            logger.info('\n\n')
+
+            #environment slection
+            temp_list = []
+            for j in range(len(parent_fitness)):
+                temp_list.append(parent_fitness[j])
+            for j in range(len(child_fitness)):
+                temp_list.append(child_fitness[j])
+            temp_list.sort(key = lambda x:(x[1], -x[3]), reverse=True)
+            logger.info(f'Population at epoch {i}:')
+            for j in range(self.pop_size):
+                pop[j] = temp_list[j][2]
+                parent_fitness[j] = temp_list[j]
+
+                logger.info([parent_fitness[j][0], parent_fitness[j][1], [_ for _ in range(filter_num) if _ not in parent_fitness[j][2]],len(parent_fitness[j][2]) ])
+            logger.info(f'\n\n')
+            best_ind = None
+            if self.args.keep==True:    #
+                best_ind = parent_fitness[0]
             else:
-                test_model = self.pruning_func(test_model, deleted_stage_index,child_indiv)
-            fitness_j = self.fitness(test_model)
-            child_fitness.append([j, fitness_j, child_indiv, len(child_indiv)])
-        return child_fitness
+                if len(parent_fitness[0][2]) != filter_num:
+                    best_ind = parent_fitness[0]
+                else:
+                    best_ind = parent_fitness[1]
+            logger.info(
+                f'Best so far {best_ind[1]}, Initial fitness: {initial_fitness}, Filter now:{best_ind[3]}, Pruning ratio: {1 - best_ind[3] / filter_num}')
+        return best_ind
 
     def check_model_profile(self):
         logger = logging.getLogger()
