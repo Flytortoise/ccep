@@ -1,12 +1,12 @@
 
 # ResNet56 on CIFAR-10
-python main.py --dataset cifar10 --arch resnet56  \
-                  --ft_epoch 100 --lr_milestone 50 \
-                  --dict_path ./models/resnet56.th  --pop_init_rate 0.95  \
-                  --prune_limitation 0.90 --batch-size 128 --valid_ratio 0.8  \
-                  --run_epoch 20
-wait
-echo "Done"
+#python main.py --dataset cifar10 --arch resnet56  \
+#                  --ft_epoch 100 --lr_milestone 50 \
+#                  --dict_path ./models/resnet56.th  --pop_init_rate 0.95  \
+#                  --prune_limitation 0.90 --batch-size 128 --valid_ratio 0.8  \
+#                  --run_epoch 20
+#wait
+#echo "Done"
 echo "======================================"
 
 # VGG16 on CIFAR-10

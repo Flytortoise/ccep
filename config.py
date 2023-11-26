@@ -88,7 +88,7 @@ parser.add_argument('--pop_init_rate', default=0.8, type=float,
                     help='init pruning rate when init population')
 parser.add_argument('--prune_limitation', default=0.75, type=float,
                     help='prune limitation rate')
-parser.add_argument('--pop_size', default=5, type=int,
+parser.add_argument('--pop_size', default=6, type=int,
                     help='population size for CCEA')
 parser.add_argument('--valid_ratio', default=0.99, type=float,
                     help='population size for CCEA')

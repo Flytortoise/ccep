@@ -7,6 +7,9 @@ import finetune
 import random
 import numpy as np
 import logging
+import numpy.matlib
+import math
+from scipy.spatial import distance
 from train import validate
 
 class CCEP:
@@ -40,6 +43,21 @@ class CCEP:
                 self.pruning_func = prune_Resnet34_group
             else:
                 raise NotImplementedError('Not implemented model')
+        count = max(self.pop_size, 10)
+        V1 = np.linspace(0,1,count)
+        V2 = 1-V1
+        self.V = np.vstack((V1, V2))
+        V_T = self.V.T
+        cosine = []
+        for i in range(len(V_T)):
+            tmp = []
+            for j in range(len(V_T)):
+                # print(i , j, V[i],V[j], 1-distance.pdist((V[i],V[j]), 'cosine'))
+                dis = 1-distance.pdist((V_T[i],V_T[j]), 'cosine')
+                tmp.append(dis.tolist()[0])
+            cosine.append(tmp)
+        cosine = cosine - np.diag(np.diag(cosine))
+        self.gamma  = numpy.min(numpy.arccos(cosine), axis=1)
 
     def fitness(self, test_model=None):
         if test_model:
@@ -127,17 +145,18 @@ class CCEP:
                 x.append(random.random()/2)
             for j in range(len(pop[i])):
                 x[pop[i][j]] = 1 - x[pop[i][j]]
-            vel = np.zeros((int(filter_num)))
+            vel = [ 0 for tmp_index in range(filter_num)]
+
             parent_fitness.append([i, fitness_i, pop[i], len(pop[i]), x, vel])
             logger.info([i, fitness_i, [_ for _ in range(filter_num) if _ not in pop[i]], len(pop[i])])
 
         parent_fitness.sort(key=lambda x: (x[1], -x[3]), reverse=True)
 
         # CCEP EA algorithm
-        best_ind = self.origin_ea_algo(pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index, logger, parent_fitness, initial_fitness)
+        # best_ind = self.origin_ea_algo(pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index, logger, parent_fitness, initial_fitness)
         
         # LSTAP
-        # best_ind = self.ea_lstpa(parent_fitness, filter_num, logger, initial_fitness)
+        best_ind = self.ea_lstpa(parent_fitness, filter_num, logger, initial_fitness, delete_conv_index, deleted_stage_index, deleted_block_index)
 
         logger.info(f'Pruned filters {[_ for _ in range(filter_num) if _ not in best_ind[2]]}')
         return best_ind[2]
@@ -167,25 +186,201 @@ class CCEP:
         fitness = [min(Dis[i]) for i in range(len(Dis))]
         return fitness
     
-    def lstpa_operator(self, pop_all, Loser, Winner, FitnessDiff):
+    def lstpa_solution(self, offdec, offvel, delete_conv_index, deleted_stage_index, deleted_block_index):
+        N = len(offdec)
+        Offspring = []
+        
+        for i in range(N):
+            pop = np.where(offdec[i] > 0.5)[0].tolist()
+            test_model = copy.deepcopy(self.model)
+            if delete_conv_index != -1:
+                test_model = self.pruning_func(test_model, deleted_stage_index, deleted_block_index, delete_conv_index, pop)
+            elif deleted_block_index != -1:
+                test_model = self.pruning_func(test_model, deleted_stage_index, deleted_block_index, pop)
+            else:
+                test_model = self.pruning_func(test_model, deleted_stage_index, pop)
+            fitness_i = self.fitness(test_model)
+
+            Offspring.append([i+N, fitness_i, pop, len(pop), offdec[i].tolist(), offvel[i].tolist()])
+
+        Offspring.sort(key=lambda x: (x[1], -x[3]), reverse=True)
+
+        return Offspring
+
+    def lstpa_operator(self, pop_all, Loser, Winner, FitnessDiff, delete_conv_index, deleted_stage_index, deleted_block_index):
         print("running.....lstpa_operator")
-        return pop_all
 
-    def lstpa_env_select(self, pop_all, Offspring, V, meth):
+        N = len(pop_all)
+        D = len(pop_all[0][4])
+
+        LoserDec = []
+        WinnerDec = []
+        LoserVel = []
+        WinnerVel = []
+        r1 = []
+        r2 = []
+        for index in range(len(Loser)):
+            LoserDec.append(pop_all[Loser[index]][4])
+            WinnerDec.append(pop_all[Winner[index]][4])
+            LoserVel.append(pop_all[Loser[index]][5])
+            WinnerVel.append(pop_all[Winner[index]][5])
+            r1.append(random.random())
+            r2.append(random.random()*(1+FitnessDiff[index]))
+
+        LoserDec = np.array(LoserDec)
+        WinnerDec = np.array(WinnerDec)
+        LoserVel = np.array(LoserVel)
+        WinnerVel = np.array(WinnerVel)
+
+        FitnessDiff = np.matlib.repmat(FitnessDiff, D, 1).T
+        r1 = np.matlib.repmat(r1, D, 1).T
+        r2 = np.matlib.repmat(r2, D, 1).T
+
+        OffVel = r1 * LoserVel + r2 * (WinnerDec - LoserDec)
+        OffDec = LoserDec + OffVel + r1 * (OffVel - LoserVel)
+        
+        OffDec = np.concatenate((OffDec, WinnerDec), axis=0)
+        OffVel = np.concatenate((OffVel, WinnerVel), axis=0)
+
+        # Lower  = repmat(Problem.lower,2*N,1)
+        # Upper  = repmat(Problem.upper,2*N,1)
+        Lower = np.zeros((N, D))
+        Upper = np.ones((N, D))
+        disM   = 20
+        # Site   = rand(2*N,D) < 1/D
+        Site = numpy.random.rand(N,D) < 1/D
+        # mu     = rand(2*N,D)
+        mu = numpy.random.rand(N,D)
+        temp_s = Site & (mu<=0.5)
+        temp_b = Site & (mu>0.5)
+
+        OffDec = np.maximum(np.minimum(OffDec, Upper), Lower)
+        for i in range(N):
+            for j in range(D):
+                if temp_s[i][j]:
+                    OffDec[i][j] = OffDec[i][j]+(Upper[i][j]-Lower[i][j])*((2*mu[i][j]+(1-2*mu[i][j])*(1-(OffDec[i][j]-Lower[i][j])/(Upper[i][j]-Lower[i][j]))**(disM+1))**(1/(disM+1))-1)
+                if temp_b[i][j]:
+                    OffDec[i][j] = OffDec[i][j]+(Upper[i][j]-Lower[i][j])*(1-(2*(1-mu[i][j])+2*(mu[i][j]-0.5)*(1-(Upper[i][j]-OffDec[i][j])/(Upper[i][j]-Lower[i][j]))**(disM+1))**(1/(disM+1)))
+        
+        Offspring = self.lstpa_solution(OffDec,OffVel, delete_conv_index, deleted_stage_index, deleted_block_index)
+
+        return Offspring
+
+    def lstpa_env_tNDSort(self,PopObj, W, thetaGen, Cosine):
+        N = len(PopObj)
+        NW = len(W)
+        
+        normP = np.sqrt(np.diag(np.inner(PopObj,PopObj)))
+        normP = numpy.matlib.repmat(normP, NW, 1).T
+        d1 = normP * Cosine
+        d2 = normP * np.sqrt(1-np.power(Cosine,2))
+
+        class_d2 = numpy.argmin(d2, axis=1)
+        tFrontNo = np.zeros(N)
+        Fitness = np.zeros(N)
+        tmp_min = numpy.tan(numpy.pi/NW/4)
+
+        theta = np.zeros(NW) + 5
+        for i in range(NW):
+            if (np.sum(W[i]>0) == 1):
+                theta[i] = 1e6
+
+            tmp_dis = []
+            C = []
+            for j in range(len(class_d2)):
+                if class_d2[j] == i:
+                    tmp_dis.append(d1[j][i]+theta[i]*d2[j][i])
+                    C.append(j)
+                    Fitness[j]=d1[j][i]+theta[i]*d2[j][i]*(thetaGen+tmp_min)
+            rank = numpy.argsort(tmp_dis)
+            count = 0
+            for rank_index in range(len(rank)):
+                count  = count + 1
+                # print(rank[rank_index])
+                # print(C[rank[rank_index]])
+                tFrontNo[C[rank[rank_index]]] = count
+        return tFrontNo,Fitness
+        
+
+    def lstpa_env_select(self, pop_all, Offspring, V, theta):
         print("running.....lstpa_env_select")
-        return pop_all
+        
+        ORI_SIZE = len(pop_all)
+        for i in range(len(Offspring)):
+            pop_all.append(Offspring[i])
 
-    def ea_lstpa(self, pop_all, filter_num, logger, initial_fitness):
+        N = len(pop_all)
+        obj1, obj2 = self.ea_cale_obj(N, pop_all)
+        M = 2
+        
+        obj1 = obj1 - np.ones(N)*min(obj1)
+        obj2 = obj2 - np.ones(N)*min(obj2)
+        PopObj = np.vstack((obj1, obj2)).T
+        V_T = V.T
+        NV = len(V_T)
+        CV = np.zeros(NV)       # always zeros
+        
+        all_dis = []
+        for i in range(len(PopObj)):
+            tmp = []
+            for j in range(len(V_T)):
+                dis = 1-distance.pdist((PopObj[i],V_T[j]), 'cosine')
+                if np.isnan(dis):
+                    tmp.append(0.9999999)
+                else:
+                    tmp.append(dis.tolist()[0])
+            all_dis.append(tmp)
+        Angle = numpy.arccos(all_dis)
+
+        associate = numpy.argmin(Angle, axis=1)
+        un_associate = numpy.unique(associate)
+    #     Angle = acos(1-pdist2(PopObj,V,'cosine'));
+    #     [~,associate] = min(Angle,[],2);
+        
+        tFrontNo, tFitness = self.lstpa_env_tNDSort(PopObj, V_T, theta, all_dis)
+        Next = np.zeros(NV)
+        for i in range(len(un_associate)):
+            un_value = un_associate[i]
+            current1 = numpy.argwhere(associate==un_value)
+            if len(current1) != 0:
+                APBI = tFitness[current1]
+                best = numpy.argmin(APBI)
+                Next[i]  = current1[best]
+    
+        Next = Next[Next!=0]
+        append_size = ORI_SIZE-len(Next)
+        if append_size > 0:
+            for pop_index in range(len(pop_all)):
+                if pop_index in Next:
+                    continue
+                Next = np.append(Next, pop_index)
+                append_size = append_size-1
+                if append_size == 0:
+                    break
+        elif append_size < 0:
+            Next = Next[:append_size]
+        Next = Next.astype(np.int32).tolist()
+        result = []
+        for i in range(len(Next)):
+            result.append(pop_all[Next[i]])
+        return result
+
+    def ea_cale_obj(self, N, pop_all):
         obj1 = []
         obj2 = []
+        for i in range(N):
+            obj1.append(101-pop_all[i][1])    # > 0
+            obj2.append(pop_all[i][3])
+        return obj1, obj2
+
+    def ea_lstpa(self, pop_all, filter_num, logger, initial_fitness, delete_conv_index, deleted_stage_index, deleted_block_index):
+
         N = len(pop_all)
         if N % 2:
             N = N - 1
 
         for index in range(self.evolution_epoch):
-            for i in range(N):
-                obj1.append(-pop_all[i][1])
-                obj2.append(pop_all[i][3])
+            obj1, obj2 = self.ea_cale_obj(N, pop_all)
 
             fitness = self.lstpa_cal_fitness(obj1, obj2)
             Rank = [ i for i in range(N) ]
@@ -199,9 +394,8 @@ class CCEP:
                     Loser[i], Winner[i] = Winner[i], Loser[i]
                 FitnessDiff.append(abs(fitness[Loser[i]] - fitness[Winner[i]]))
             
-            Offspring = self.lstpa_operator(pop_all, Loser, Winner, FitnessDiff)
-            V = 1       # TODO tmp
-            pop_all = self.lstpa_env_select(pop_all, Offspring, V, (index/self.evolution_epoch)**2)
+            Offspring = self.lstpa_operator(pop_all, Loser, Winner, FitnessDiff, delete_conv_index, deleted_stage_index, deleted_block_index)
+            pop_all = self.lstpa_env_select(pop_all, Offspring, self.V, (index/self.evolution_epoch)**2)
 
             # select best
             pop_all.sort(key = lambda x:(x[1], -x[3]), reverse=True)
@@ -228,8 +422,7 @@ class CCEP:
                         child1, child2 = self.crossover(parent1, parent2, filter_num)
                         pop[rand1] = child1
                         pop[rand2] = child2
-            # CCEP EA algorithm
-            # child_fitness = self.origin_ea_algo(pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index)
+
             child_fitness = []
             for j in range(self.pop_size):
                 parent = pop[random.randint(0,self.pop_size - 1)]  # select pop
