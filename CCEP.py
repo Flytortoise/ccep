@@ -186,12 +186,21 @@ class CCEP:
         fitness = [min(Dis[i]) for i in range(len(Dis))]
         return fitness
     
-    def lstpa_solution(self, offdec, offvel, delete_conv_index, deleted_stage_index, deleted_block_index):
+    def lstpa_solution(self, offdec, offvel, delete_conv_index, deleted_stage_index, deleted_block_index,filter_num):
         N = len(offdec)
         Offspring = []
         
         for i in range(N):
             pop = np.where(offdec[i] > 0.5)[0].tolist()
+            if len(pop) < (filter_num*self.prune_limitation):
+                need_increate = math.ceil(filter_num*self.prune_limitation) - len(pop)
+                zeros_pop = np.where(offdec[i] <= 0.5)[0].tolist()
+                increate_index = random.sample(range(0, len(zeros_pop)), need_increate)
+                for index in range(len(increate_index)):
+                    offdec[i][zeros_pop[increate_index[index]]] = 1-offdec[i][zeros_pop[increate_index[index]]]
+                    offvel[i][zeros_pop[increate_index[index]]] = 0
+                pop = np.where(offdec[i] > 0.5)[0].tolist()
+
             test_model = copy.deepcopy(self.model)
             if delete_conv_index != -1:
                 test_model = self.pruning_func(test_model, deleted_stage_index, deleted_block_index, delete_conv_index, pop)
@@ -207,7 +216,7 @@ class CCEP:
 
         return Offspring
 
-    def lstpa_operator(self, pop_all, Loser, Winner, FitnessDiff, delete_conv_index, deleted_stage_index, deleted_block_index):
+    def lstpa_operator(self, pop_all, Loser, Winner, FitnessDiff, delete_conv_index, deleted_stage_index, deleted_block_index,filter_num):
         print("running.....lstpa_operator")
 
         N = len(pop_all)
@@ -262,7 +271,7 @@ class CCEP:
                 if temp_b[i][j]:
                     OffDec[i][j] = OffDec[i][j]+(Upper[i][j]-Lower[i][j])*(1-(2*(1-mu[i][j])+2*(mu[i][j]-0.5)*(1-(Upper[i][j]-OffDec[i][j])/(Upper[i][j]-Lower[i][j]))**(disM+1))**(1/(disM+1)))
         
-        Offspring = self.lstpa_solution(OffDec,OffVel, delete_conv_index, deleted_stage_index, deleted_block_index)
+        Offspring = self.lstpa_solution(OffDec,OffVel, delete_conv_index, deleted_stage_index, deleted_block_index,filter_num)
 
         return Offspring
 
@@ -394,7 +403,7 @@ class CCEP:
                     Loser[i], Winner[i] = Winner[i], Loser[i]
                 FitnessDiff.append(abs(fitness[Loser[i]] - fitness[Winner[i]]))
             
-            Offspring = self.lstpa_operator(pop_all, Loser, Winner, FitnessDiff, delete_conv_index, deleted_stage_index, deleted_block_index)
+            Offspring = self.lstpa_operator(pop_all, Loser, Winner, FitnessDiff, delete_conv_index, deleted_stage_index, deleted_block_index,filter_num)
             pop_all = self.lstpa_env_select(pop_all, Offspring, self.V, (index/self.evolution_epoch)**2)
 
             # select best
@@ -402,6 +411,7 @@ class CCEP:
             best_ind = pop_all[0]
             logger.info(
                 f'Best so far {best_ind[1]}, Initial fitness: {initial_fitness}, Filter now:{best_ind[3]}, Pruning ratio: {1 - best_ind[3] / filter_num}')
+            logger.info('\n\n')
         return best_ind
 
     def origin_ea_algo(self, pop, filter_num, delete_conv_index, deleted_stage_index, deleted_block_index, logger, parent_fitness, initial_fitness):

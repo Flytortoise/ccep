@@ -1,14 +1,21 @@
 import numpy as np
+import random
 import numpy.matlib
 import math
 from scipy.spatial import distance
 
-a=[[1,2],[3,4],[5,6]]
-b=[[7,8],[9,10],[11,12]]
+limit = 2
+a=np.array([[1,0,1,0,0,0,1,1],[1,0,1,0,0,0,1,1]])
+index_array = np.argwhere(a[0]==1)
+print(index_array)
 
-p = np.vstack((a,b))
+# if len(index_array) > limit:
+#     need_reduce = len(index_array) - limit
+#     res = random.sample(range(0,len(index_array)), need_reduce)
+#     print(res)
 
-print(p)
+
+
 
 
 # a=[[1,2],[3,4]]
